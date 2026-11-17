@@ -73,6 +73,43 @@ class Generic(IVP):
 
 
 
+class LoktaVolterra(IVP):
+    def __init__ (self, t0: float, y0: np.ndarray, T: float, a: float, b: float, c: float, d: float):
+        super ().__init__(t0 = t0, T = T, y0 = y0)
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+
+    def f(self, t: float, y: np.ndarray) -> np.ndarray:
+        """
+        Lokta-Volterra model function.
+        """
+        y0 = self.a*y[0] - self.b*y[0]*y[1]
+        y1 = self.c*y[0]*y[1] - self.d*y[1]
+
+        return np.array([y0,y1])
+
+
+
+
+class vanderPol(IVP):
+    def __init__ (self, t0: float, y0: np.ndarray, T: float, mu: float):
+        super ().__init__(t0 = t0, T = T, y0 = y0)
+        self.mu = mu
+
+    def f(self, t: float, y: np.ndarray) -> np.ndarray:
+        """
+        van der Pol equation. 
+        """
+        y0 = y[1]
+        y1 = self.mu*(1-y[0]**2)*y[1] - y[0]
+
+        return np.array([y0,y1])
+
+
+
+    
 class Solver:
     """
     Class representing a numerical solver for an IVP.
@@ -94,11 +131,11 @@ class Solver:
         self.h = (self.ivp.T - self.ivp.t0) / N
         self.u = np.zeros((N + 1, len(self.ivp.y0)))
         self.u[0] = self.ivp.y0
-
+        self.adapt = adaptative
+        
         # Adaptative step initialize parameters
-        if adaptative:          
+        if self.adapt:          
             self.tol = tol
-            self.adapt = adaptative
             self.N = 1
 
             T = self.ivp.T
@@ -144,26 +181,16 @@ class Solver:
 
     def newstep(self):
         """Computes the next step size from the current and previous error estimates."""
-        if not hasattr(self,"errest"):
-            raise ValueError("Error estimate is not available for this method")
-        else:
-            if self.errest is None:
-                        raise ValueError("Error estimate is available but not initialize."+
-                                        "\nCall step() first.")
-
-        if not hasattr(self,"errestold"):
-            raise ValueError("Previous error estimate is not available")
-
-        if not hasattr(self,"k"):
-            raise ValueError("Order of local error estimate is not availabe for this method")    
-               
         h_new = (
-            (self.tol / self.errest) ** (2 / (3 * self.k))
-            * (self.tol / self.errestold) ** (-1 / (3 * self.k))
-            * self.h
-        )
+                (self.tol / self.errest) ** (2 / (3 * self.k))
+                * (self.tol / self.errestold) ** (-1 / (3 * self.k))
+                * self.h
+            )
         self.errestold = self.errest
         self.h = h_new
+        if not np.isfinite(h_new) or h_new <= 0:
+            raise RuntimeError(f"Step size update must be positive or finite."+
+                               f"\nUpdate:\n{h_new}")
 
 
 
@@ -219,10 +246,11 @@ class RK4(Solver):
 
 class RK34(Solver):
     def __init__ (self, ivp: IVP, N: int, tol: float=1e-6, adaptative: bool=False):
-        super ().__init__(ivp = ivp, N = N, tol = tol, adaptative= adaptative)
         self.errest = None    # Initialize the error estimate attribute
         self.errestold = tol  # Initialize the previous error estimate attribute
         self.k = 4            # Order of local truncation error
+        super ().__init__(ivp = ivp, N = N, tol = tol, adaptative= adaptative)
+        
         
     def step(self, tn: float, un: np.ndarray) -> np.ndarray:
         f = self.ivp.f
@@ -259,7 +287,7 @@ class Evaluator():
         if not hasattr(self.ivp, 'exact'):
             raise NotImplementedError("The exact solution method must be implemented in the IVP class.")
         
-        solver = self.solver.__class__(ivp = self.ivp, N = N)
+        solver = self.solver(ivp = self.ivp, N = N)
         solver.integrate()
         
         exact_solution = np.array([self.ivp.exact(t) for t in solver.grid])
@@ -273,7 +301,7 @@ class Evaluator():
     def errvsh(self, N: np.array, relative: bool=False) -> tuple[np.ndarray, np.ndarray]:
         """
         Computes the error between the numerical solution and the exact solution 
-        in the final step for different step sizes.
+        in the final step for different fixed step sizes.
         """
         if not hasattr(self.ivp, 'exact'):
             raise NotImplementedError("The exact solution method must be implemented in the IVP class.")
@@ -282,7 +310,7 @@ class Evaluator():
         hs = []
         
         for n in N:
-            solver = self.solver.__class__(ivp = self.ivp, N = n)
+            solver = self.solver(ivp = self.ivp, N = n)
             solver.integrate()
             
             exact_solution = self.ivp.exact(solver.grid[-1])
