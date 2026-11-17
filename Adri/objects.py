@@ -268,6 +268,45 @@ class RK34(Solver):
 
 
 
+class BDF4(Solver):
+    def __init__ (self, ivp: IVP, N: int):
+        super ().__init__(ivp = ivp, N = N)
+        self.n = 1
+
+    def step(self, tn: float, un: np.ndarray) -> np.ndarray:
+        if self.n < 4:
+            return self.RK4_step(tn,un)
+        else:
+            return self.BDF_step(tn,un)
+        
+
+    def RK4_step(self, tn: float, un: np.ndarray) -> np.ndarray:
+        f = self.ivp.f
+        h = self.h
+        y1 = f(tn, un)
+        y2 = f(tn + h/2, un + h/2 * y1)
+        y3 = f(tn + h/2, un + h/2 * y2)
+        y4 = f(tn + h, un + h * y3)
+
+        self.n += 1
+        return un + h/6 * (y1 + 2*y2 + 2*y3 + y4)
+
+    def BDF_step(self, tn: float, un: np.ndarray) -> np.ndarray:
+        n = self.n
+        f = self.ivp.f
+        h = self.h
+
+        c1 = (48/25) * self.u[n-1]
+        c2 = (-36/25) * self.u[n-2]
+        c3 = (16/25) * self.u[n-3]
+        c4 = (-3/25) * self.u[n-4]
+
+        F = lambda x: x - c1 - c2 - c3 - c4 - (12*h/25)*f(tn+h, x)
+
+        self.n += 1
+
+        return scipy.optimize.fsolve(func=F, x0=un)
+
 
 
 class Evaluator():
